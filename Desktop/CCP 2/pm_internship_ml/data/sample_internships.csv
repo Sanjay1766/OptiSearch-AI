@@ -1,0 +1,21 @@
+id,title,company,location,latitude,longitude,description,skills_required,stipend,duration_months,category
+1,Software Development Intern,TCS,Bangalore,12.9716,77.5946,Develop web applications using Python and Django,Python;Django;SQL,15000,3,Technology
+2,Data Analysis Intern,Infosys,Bangalore,12.9716,77.5946,Analyze large datasets and create dashboards,Python;Pandas;Tableau,12000,2,Data Science
+3,Java Developer Intern,Wipro,Hyderabad,17.3850,78.4867,Work on Java backend systems,Java;Spring;SQL,14000,3,Technology
+4,ML Engineer Intern,Microsoft,Bangalore,12.9716,77.5946,Build machine learning models,Python;TensorFlow;Scikit-learn,20000,3,AI/ML
+5,Frontend Developer Intern,Amazon,Mumbai,19.0760,72.8777,Develop React-based UI components,JavaScript;React;CSS,16000,3,Technology
+6,Cloud Computing Intern,IBM,Delhi,28.7041,77.1025,AWS and Cloud infrastructure management,AWS;Docker;Kubernetes,15000,2,Cloud
+7,Business Analyst Intern,Deloitte,Mumbai,19.0760,72.8777,Analyze business requirements and create documentation,Excel;SQL;Python,11000,2,Business
+8,Marketing Intern,Google,Bangalore,12.9716,77.5946,Digital marketing campaign management,Digital Marketing;Analytics;Content Writing,10000,2,Marketing
+9,Data Science Intern,Amazon,Hyderabad,17.3850,78.4867,Build recommendation systems,Python;Machine Learning;SQL,18000,3,Data Science
+10,DevOps Intern,Accenture,Delhi,28.7041,77.1025,CI/CD pipeline management,Docker;Jenkins;Linux,14000,2,DevOps
+11,UI/UX Designer Intern,Meta,Bangalore,12.9716,77.5946,Design user interfaces and experiences,Figma;Adobe XD;UI Design,13000,3,Design
+12,Blockchain Developer Intern,Polygon,Bangalore,12.9716,77.5946,Smart contract development,Solidity;Web3;Ethereum,17000,3,Blockchain
+13,Full Stack Intern,Oracle,Hyderabad,17.3850,78.4867,Frontend and backend development,JavaScript;Node.js;React;MongoDB,15000,3,Technology
+14,Quality Assurance Intern,HCL,Mumbai,19.0760,72.8777,Test automation and bug tracking,Selenium;Java;Testing,12000,2,QA
+15,Content Writer Intern,LinkedIn,Delhi,28.7041,77.1025,Create technical content and blogs,Writing;SEO;Content Marketing,9000,2,Content
+16,Network Security Intern,Cisco,Bangalore,12.9716,77.5946,Network security and penetration testing,Networking;Linux;Security,16000,3,Cybersecurity
+17,Database Admin Intern,Cognizant,Chennai,13.0827,80.2707,Database management and optimization,Oracle;SQL;Linux,13000,2,Database
+18,Python Intern,Google,Chennai,13.0827,80.2707,Python development for internal tools,Python;Flask;PostgreSQL,14000,3,Technology
+19,IoT Developer Intern,Intel,Pune,18.5204,73.8567,IoT device development and firmware,Embedded C;Arduino;IoT,14000,3,Hardware
+20,Graphics Developer Intern,Adobe,Bangalore,12.9716,77.5946,Graphics rendering and optimization,C++;Graphics;OpenGL,15000,3,Graphics
