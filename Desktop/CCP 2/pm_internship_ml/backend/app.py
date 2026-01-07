@@ -1,11 +1,15 @@
 """
 Flask application for PM Internship ML Search System
+Optimized with caching, lazy loading, and efficient data handling
 """
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pandas as pd
 import os
 import sys
+from functools import lru_cache
+import time
+
 sys.path.insert(0, os.path.dirname(__file__))
 from geolocation_service import GeolocationService
 from ml_search_engine import MLSearchEngine
@@ -13,72 +17,157 @@ from ml_search_engine import MLSearchEngine
 app = Flask(__name__)
 CORS(app)
 
-# Initialize services
-DATA_PATH = os.path.join(os.path.dirname(__file__), '../data/sample_internships.csv')
-internships_df = pd.read_csv(DATA_PATH)
-ml_engine = MLSearchEngine()
-ml_engine.create_embeddings(internships_df)
+# Global caching system
+class Cache:
+    search_cache = {}
+    location_cache = {}
+    categories_cache = None
+    locations_cache = None
+    cache_ttl = 3600  # 1 hour
+    last_update = {}
+    
+    @classmethod
+    def is_valid(cls, key):
+        if key not in cls.last_update:
+            return False
+        return time.time() - cls.last_update[key] < cls.cache_ttl
+    
+    @classmethod
+    def get(cls, cache_dict, key):
+        if key in cache_dict and cls.is_valid(key):
+            return cache_dict[key]
+        return None
+    
+    @classmethod
+    def set(cls, cache_dict, key, value):
+        cache_dict[key] = value
+        cls.last_update[key] = time.time()
+
+# Lazy loading for better startup
+internships_df = None
+ml_engine = None
+
+def get_internships_df():
+    global internships_df
+    if internships_df is None:
+        DATA_PATH = os.path.join(os.path.dirname(__file__), '../data/sample_internships.csv')
+        internships_df = pd.read_csv(DATA_PATH)
+        internships_df['location_lower'] = internships_df['location'].str.lower()
+    return internships_df
+
+def get_ml_engine():
+    global ml_engine
+    if ml_engine is None:
+        ml_engine = MLSearchEngine()
+        ml_engine.create_embeddings(get_internships_df())
+    return ml_engine
 
 
 @app.route('/api/search', methods=['POST'])
 def search():
     """
     Main search endpoint with combined geolocation and ML search
+    Optimized with caching and efficient filtering
     """
-    data = request.json
-    query = data.get('query', '')
-    location = data.get('location', '')
-    search_type = data.get('search_type', 'semantic')  # semantic or keyword
-    top_k = data.get('top_k', 10)
+    data = request.json or {}
+    query = data.get('query', '').strip()
+    location = data.get('location', '').strip()
+    search_type = data.get('search_type', 'semantic')
+    top_k = min(data.get('top_k', 10), 100)  # Limit to 100 max
     
     if not query:
-        return jsonify({'error': 'Query is required'}), 400
+        return jsonify({'success': False, 'error': 'Query is required', 'results': []}), 200
+    
+    # Check cache first
+    cache_key = f"{query}|{location}|{search_type}|{top_k}"
+    cached = Cache.get(Cache.search_cache, cache_key)
+    if cached is not None:
+        return jsonify(cached)
     
     try:
-        # Perform semantic search
-        if search_type == 'semantic':
-            results = ml_engine.search(query, top_k=top_k)
-        elif search_type == 'multi-field':
-            results = ml_engine.multi_field_search(query, top_k=top_k)
-        else:
-            results = ml_engine.search(query, top_k=top_k)
+        df = get_internships_df()
+        engine = get_ml_engine()
+        
+        if df is None or df.empty:
+            return jsonify({'success': False, 'error': 'No data available', 'results': []}), 200
+        
+        # Perform semantic search - get extra results for location filtering
+        results = []
+        try:
+            if search_type == 'semantic':
+                results = engine.search(query, top_k=top_k * 2)
+            elif search_type == 'multi-field':
+                results = engine.multi_field_search(query, top_k=top_k * 2)
+            else:
+                results = engine.search(query, top_k=top_k * 2)
+        except Exception as search_err:
+            print(f"Search engine error: {search_err}")
+            import traceback
+            traceback.print_exc()
+            results = []
         
         # Apply location filter if provided
-        if location:
-            # First try to find in exact location
-            exact_location_results = [
-                r for r in results if r['location'].lower() == location.lower()
-            ]
+        if location and results:
+            location_lower = location.lower()
             
-            if exact_location_results:
-                results = exact_location_results
+            # First try exact match (faster)
+            exact_matches = [r for r in results if r.get('location', '').lower() == location_lower]
+            if exact_matches:
+                results = exact_matches
             else:
-                # Find nearby internships
-                nearby = GeolocationService.find_nearby_internships(
-                    internships_df, location, radius_km=100
-                )
-                
-                if not nearby.empty:
-                    nearby_ids = nearby['id'].tolist()
-                    results = [r for r in results if r['id'] in nearby_ids]
+                # Find nearby internships with caching
+                try:
+                    location_key = f"{location}|100"
+                    nearby_df = Cache.get(Cache.location_cache, location_key)
+                    if nearby_df is None:
+                        nearby_df = GeolocationService.find_nearby_internships(df, location, radius_km=100)
+                        Cache.set(Cache.location_cache, location_key, nearby_df)
                     
-                    # Sort by distance
-                    for r in results:
-                        r['distance_km'] = nearby[nearby['id'] == r['id']]['distance_km'].values[0]
-                    results.sort(key=lambda x: x.get('distance_km', float('inf')))
+                    if nearby_df is not None and not nearby_df.empty:
+                        nearby_ids_set = set(nearby_df['id'].astype(int).tolist())
+                        results = [r for r in results if int(r.get('id', -1)) in nearby_ids_set]
+                except Exception as loc_err:
+                    print(f"Location filter error: {loc_err}")
+                    # Continue with unfiltered results
         
-        # Clean results
+        # Clean and format results
+        cleaned_results = []
         for result in results:
-            result.pop('distance_km', None)
+            try:
+                clean_result = {
+                    'id': int(result.get('id', 0)),
+                    'title': str(result.get('title', '')),
+                    'company': str(result.get('company', '')),
+                    'location': str(result.get('location', '')),
+                    'description': str(result.get('description', '')),
+                    'skills_required': str(result.get('skills_required', '')),
+                    'stipend': str(result.get('stipend', '')),
+                    'duration_months': int(result.get('duration_months', 0)),
+                    'category': str(result.get('category', '')),
+                    'relevance_score': float(result.get('relevance_score', 0.0))
+                }
+                cleaned_results.append(clean_result)
+            except Exception as clean_err:
+                print(f"Result cleaning error: {clean_err}")
+                continue
         
-        return jsonify({
+        # Sort by relevance score (highest first)
+        cleaned_results.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
+        
+        response = {
             'success': True,
-            'total_results': len(results),
-            'results': results[:top_k]
-        })
+            'total_results': len(cleaned_results),
+            'results': cleaned_results[:top_k]
+        }
+        
+        Cache.set(Cache.search_cache, cache_key, response)
+        return jsonify(response)
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Search error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e), 'results': []}), 200
 
 
 @app.route('/api/search-by-location', methods=['POST'])
@@ -184,9 +273,19 @@ def search_by_category():
 @app.route('/api/locations', methods=['GET'])
 def get_locations():
     """
-    Get list of all available locations
+    Get list of all available locations (cached)
     """
-    locations = internships_df['location'].unique().tolist()
+    if Cache.locations_cache is not None and Cache.is_valid('locations'):
+        return jsonify({
+            'success': True,
+            'locations': Cache.locations_cache
+        })
+    
+    df = get_internships_df()
+    locations = df['location'].unique().tolist()
+    Cache.locations_cache = locations
+    Cache.last_update['locations'] = time.time()
+    
     return jsonify({
         'success': True,
         'locations': locations
@@ -196,9 +295,19 @@ def get_locations():
 @app.route('/api/categories', methods=['GET'])
 def get_categories():
     """
-    Get list of all internship categories
+    Get list of all internship categories (cached)
     """
-    categories = internships_df['category'].unique().tolist()
+    if Cache.categories_cache is not None and Cache.is_valid('categories'):
+        return jsonify({
+            'success': True,
+            'categories': Cache.categories_cache
+        })
+    
+    df = get_internships_df()
+    categories = df['category'].unique().tolist()
+    Cache.categories_cache = categories
+    Cache.last_update['categories'] = time.time()
+    
     return jsonify({
         'success': True,
         'categories': categories
@@ -208,11 +317,20 @@ def get_categories():
 @app.route('/api/health', methods=['GET'])
 def health():
     """Health check endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'total_internships': len(internships_df)
-    })
+    try:
+        df = get_internships_df()
+        return jsonify({
+            'status': 'healthy',
+            'total_internships': len(df),
+            'ml_engine_loaded': ml_engine is not None
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    # Use threaded mode for better concurrency and disable reloader
+    app.run(debug=True, port=5000, threaded=True, use_reloader=False)
